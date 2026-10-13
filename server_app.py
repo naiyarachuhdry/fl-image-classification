@@ -11,6 +11,7 @@ from models import create_model
 
 from utils.fedbn_helper import get_fedbn_state_dict
 from utils.fedpara_helper import convert_to_fedpara
+from utils.fedrep_helper import get_fedrep_shared_state_dict
 
 # Create ServerApp
 app = ServerApp()
@@ -37,8 +38,12 @@ def main(grid: Grid, context: Context) -> None:
     if algorithm == "fedpara":
         convert_to_fedpara(global_model)    
 
-    if algorithm == "fedbn":
+    elif algorithm == "fedbn":
         arrays = ArrayRecord(get_fedbn_state_dict(global_model))
+
+    elif algorithm == "fedrep":
+        arrays = ArrayRecord(get_fedrep_shared_state_dict(global_model))
+    
     else:
         arrays = ArrayRecord(global_model.state_dict())
 
@@ -74,12 +79,12 @@ def main(grid: Grid, context: Context) -> None:
     
     strategy = get_strategy(algorithm, **strategy_kwargs)
 
-    if algorithm == "fedbn":
+    if algorithm in ("fedbn", "fedrep"):
         evaluate_fn = None
     else:
         evaluate_fn = global_evaluate
 
-    # Start strategy, run FedAvg for `num_rounds`
+    # Start strategy, run for `num_rounds`
     result = strategy.start(
         grid=grid,
         initial_arrays=arrays,

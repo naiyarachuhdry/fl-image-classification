@@ -8,6 +8,7 @@ from .fedmedian_trainer import FedMedianTrainer
 from .fednova_trainer import FedNovaTrainer
 from .fedbn_trainer import FedBNTrainer
 from .fedpara_trainer import FedParaTrainer
+from .fedrep_trainer import FedRepTrainer
 
 TRAINER_REGISTRY = {
     "fedavg": FedAvgTrainer,
@@ -20,6 +21,7 @@ TRAINER_REGISTRY = {
     "fednova": FedNovaTrainer,
     "fedbn": FedBNTrainer,
     "fedpara": FedParaTrainer,
+    "fedrep": FedRepTrainer,
 }
 
 

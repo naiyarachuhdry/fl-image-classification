@@ -12,6 +12,7 @@ STRATEGY_REGISTRY = {
     "fednova": FedNova,
     "fedbn": FedAvg,
     "fedpara": FedAvg,
+    "fedrep": FedAvg,
 }
 
 
