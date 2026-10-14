@@ -41,15 +41,15 @@ serverapp = "server_app:app"
 clientapp = "client_app:app"
 
 [tool.flwr.app.config]
-num-server-rounds = 2
+num-server-rounds = 5
 fraction-evaluate = 1.0
-local-epochs = 3
-learning-rate = 0.1
-batch-size = 32
+local-epochs = 2
+learning-rate = 0.01
+batch-size = 64                    #32
 save-model = false
 fraction-fit = 1.0
-min-available-clients = 2
-algorithm = "fedrep"
+min-available-clients = 10
+algorithm = "moon"
 proximal-mu = 0.01
 server-learning-rate = 1.0
 server-momentum = 0.9
@@ -57,9 +57,12 @@ beta-1 = 0.9
 beta-2 = 0.99
 tau = 0.001
 fedrep-head-epochs = 1
+moon-mu = 1.0
+moon-temperature = 0.5         
+moon-projection-dim = 256   
 model_name = "cnn"
 
 [partition]
-type = "iid"         # options: iid, dirichlet, shard
+type = "dirichlet"   # options: iid, dirichlet, shard
 alpha = 0.5          # used only for dirichlet
 num_shards = 2       # used only for shard

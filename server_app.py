@@ -12,17 +12,20 @@ from models import create_model
 from utils.fedbn_helper import get_fedbn_state_dict
 from utils.fedpara_helper import convert_to_fedpara
 from utils.fedrep_helper import get_fedrep_shared_state_dict
+from utils.moon_helper import prepare_moon_model
 
 # Create ServerApp
 app = ServerApp()
 model_name = None
 algorithm = None
+moon_projection_dim = None
 @app.main()
 
 def main(grid: Grid, context: Context) -> None:
     """Main entry point for the ServerApp."""
-    global model_name, algorithm
+    global model_name, algorithm, moon_projection_dim
     algorithm = context.run_config["algorithm"]
+    moon_projection_dim = context.run_config.get("moon-projection-dim", 84)
 
     # Read run config
     fraction_evaluate: float = context.run_config["fraction-evaluate"]
@@ -36,14 +39,17 @@ def main(grid: Grid, context: Context) -> None:
     global_model = create_model(model_name)
 
     if algorithm == "fedpara":
-        convert_to_fedpara(global_model)    
+        convert_to_fedpara(global_model) 
 
-    elif algorithm == "fedbn":
+    elif algorithm == "moon":
+        prepare_moon_model(global_model, projection_dim=moon_projection_dim)   
+
+    if algorithm == "fedbn":
         arrays = ArrayRecord(get_fedbn_state_dict(global_model))
 
     elif algorithm == "fedrep":
         arrays = ArrayRecord(get_fedrep_shared_state_dict(global_model))
-    
+        
     else:
         arrays = ArrayRecord(global_model.state_dict())
 
@@ -109,6 +115,9 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
 
     if algorithm == "fedpara":
         convert_to_fedpara(model)
+
+    elif algorithm == "moon":
+        prepare_moon_model(model, projection_dim=moon_projection_dim)
 
     model.load_state_dict(arrays.to_torch_state_dict())
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")

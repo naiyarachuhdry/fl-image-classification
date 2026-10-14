@@ -14,6 +14,7 @@ from models import create_model
 from utils.fedbn_helper import get_fedbn_state_dict, get_bn_state_dict, load_bn_state_dict
 from utils.fedpara_helper import convert_to_fedpara
 from utils.fedrep_helper import get_fedrep_head_state_dict, get_fedrep_shared_state_dict, load_fedrep_head_state_dict
+from utils.moon_helper import prepare_moon_model
 
 # Flower ClientApp
 app = ClientApp()
@@ -29,6 +30,12 @@ def train(msg: Message, context: Context):
     
     if algorithm == "fedpara":
         convert_to_fedpara(model)
+
+    elif algorithm == "moon":
+        prepare_moon_model(
+            model,
+            projection_dim=context.run_config.get("moon-projection-dim", 84),
+        )
 
     # Load received parameters
     received_state= msg.content["arrays"].to_torch_state_dict()
@@ -75,17 +82,37 @@ def train(msg: Message, context: Context):
         algorithm,
         proximal_mu=msg.content["config"].get("proximal_mu", 0.0),
         head_epochs=msg.content["config"].get("fedrep-head-epochs", 1),
+        mu=context.run_config.get("moon-mu", 1.0),
+        temperature=context.run_config.get("moon-temperature", 0.5),
     )
 
     # Call the training function
-    train_loss = trainer.train(
-        model,
-        trainloader,
-        context.run_config["local-epochs"],
-        msg.content["config"]["lr"],
-        device,
-    )
+    if algorithm == "moon":
+        previous_state_dict = None
+        if "moon_previous_state" in context.state:
+            previous_state_dict = context.state["moon_previous_state"].to_torch_state_dict()
 
+        train_loss = trainer.train(
+            model,
+            trainloader,
+            context.run_config["local-epochs"],
+            msg.content["config"]["lr"],
+            device,
+            previous_state_dict=previous_state_dict,
+        )
+        # Save trained local state for next round's contrastive loss
+        context.state["moon_previous_state"] = ArrayRecord(
+                {k: v.detach().cpu() for k, v in model.state_dict().items()}
+            )
+    else:
+        train_loss = trainer.train(
+            model,
+            trainloader,
+            context.run_config["local-epochs"],
+            msg.content["config"]["lr"],
+            device,
+        )
+    
     if algorithm == "fedbn":
         bn_state = get_bn_state_dict(model)
         context.state["fedbn_bn_state"] = ArrayRecord(bn_state)
@@ -129,6 +156,12 @@ def evaluate(msg: Message, context: Context):
     model = create_model(model_name)
     if algorithm == "fedpara":
         convert_to_fedpara(model)
+
+    elif algorithm == "moon":
+        prepare_moon_model(
+            model,
+            projection_dim=context.run_config.get("moon-projection-dim", 84),
+        )
    
     received_state = msg.content["arrays"].to_torch_state_dict()
 

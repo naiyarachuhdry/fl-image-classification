@@ -13,6 +13,7 @@ STRATEGY_REGISTRY = {
     "fedbn": FedAvg,
     "fedpara": FedAvg,
     "fedrep": FedAvg,
+    "moon": FedAvg,
 }
 
 

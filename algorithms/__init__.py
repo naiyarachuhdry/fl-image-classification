@@ -9,6 +9,7 @@ from .fednova_trainer import FedNovaTrainer
 from .fedbn_trainer import FedBNTrainer
 from .fedpara_trainer import FedParaTrainer
 from .fedrep_trainer import FedRepTrainer
+from .moon_trainer import MoonTrainer
 
 TRAINER_REGISTRY = {
     "fedavg": FedAvgTrainer,
@@ -22,6 +23,7 @@ TRAINER_REGISTRY = {
     "fedbn": FedBNTrainer,
     "fedpara": FedParaTrainer,
     "fedrep": FedRepTrainer,
+    "moon": MoonTrainer,
 }
 
 
