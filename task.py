@@ -49,7 +49,7 @@ def load_data(partition_id: int, num_partitions: int, batch_size: int):
     print(f"Client {partition_id}: train={len(partition["train"])}, test={len(partition["test"])}")
 
     partition = partition.with_transform(apply_transforms)
-    trainloader = DataLoader( partition["train"], batch_size=batch_size, shuffle=True,)
+    trainloader = DataLoader( partition["train"], batch_size=batch_size, shuffle=True, drop_last=True)
     testloader = DataLoader(partition["test"], batch_size=batch_size, shuffle=False,)
 
     return trainloader, testloader
