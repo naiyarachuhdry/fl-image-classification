@@ -15,6 +15,7 @@ from utils.fedbn_helper import get_fedbn_state_dict, get_bn_state_dict, load_bn_
 from utils.fedpara_helper import convert_to_fedpara
 from utils.fedrep_helper import get_fedrep_head_state_dict, get_fedrep_shared_state_dict, load_fedrep_head_state_dict
 from utils.moon_helper import prepare_moon_model
+from utils.fedper_helper import get_fedper_head_state_dict, get_fedper_shared_state_dict, load_fedper_head_state_dict
 
 # Flower ClientApp
 app = ClientApp()
@@ -74,6 +75,17 @@ def train(msg: Message, context: Context):
             
         else:
            print(f"[FedRep] Client {context.node_config['partition-id']}: no previous head; using initialized head")  
+
+    
+    elif algorithm == "fedper":
+        model.load_state_dict(received_state, strict=False)
+
+        if "fedper_head_state" in context.state:
+            head_state = context.state["fedper_head_state"].to_torch_state_dict()
+            load_fedper_head_state_dict(model, head_state)
+            print(f"[FedPer] Client {context.node_config['partition-id']}: local head RESTORED")
+        else:
+            print(f"[FedPer] Client {context.node_config['partition-id']}: no previous head; using initialized head")
 
     else:
         model.load_state_dict(received_state)
@@ -144,11 +156,19 @@ def train(msg: Message, context: Context):
         print(f"Client {partition_id}: saved personalized head "
             f"with {len(head_state)} tensors")
 
+    elif algorithm == "fedper":
+        head_state = get_fedper_head_state_dict(model)
+        context.state["fedper_head_state"] = ArrayRecord(head_state)
+        print(f"[FedPer] Client {partition_id}: saved personalized head "
+            f"with {len(head_state)} tensors")
+
     # Construct and return reply Message
     if algorithm == "fedbn":
         model_record = ArrayRecord(get_fedbn_state_dict(model))
     elif algorithm == "fedrep":
         model_record = ArrayRecord(get_fedrep_shared_state_dict(model))
+    elif algorithm == "fedper":
+        model_record = ArrayRecord(get_fedper_shared_state_dict(model))
     else:
         model_record = ArrayRecord(model.state_dict())
 
@@ -197,6 +217,12 @@ def evaluate(msg: Message, context: Context):
         if "fedrep_head_state" in context.state:
             head_state = context.state["fedrep_head_state"].to_torch_state_dict()
             load_fedrep_head_state_dict(model, head_state)
+
+    elif algorithm == "fedper":
+        model.load_state_dict(received_state, strict=False)
+        if "fedper_head_state" in context.state:
+            head_state = context.state["fedper_head_state"].to_torch_state_dict()
+            load_fedper_head_state_dict(model, head_state)
 
     else:
         model.load_state_dict(received_state,)

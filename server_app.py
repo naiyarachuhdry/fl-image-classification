@@ -13,6 +13,7 @@ from utils.fedbn_helper import get_fedbn_state_dict
 from utils.fedpara_helper import convert_to_fedpara
 from utils.fedrep_helper import get_fedrep_shared_state_dict
 from utils.moon_helper import prepare_moon_model
+from utils.fedper_helper import get_fedper_shared_state_dict
 
 # Create ServerApp
 app = ServerApp()
@@ -49,6 +50,9 @@ def main(grid: Grid, context: Context) -> None:
 
     elif algorithm == "fedrep":
         arrays = ArrayRecord(get_fedrep_shared_state_dict(global_model))
+
+    elif algorithm == "fedper":
+        arrays = ArrayRecord(get_fedper_shared_state_dict(global_model))
         
     else:
         arrays = ArrayRecord(global_model.state_dict())
@@ -85,7 +89,7 @@ def main(grid: Grid, context: Context) -> None:
     
     strategy = get_strategy(algorithm, **strategy_kwargs)
 
-    if algorithm in ("fedbn", "fedrep"):
+    if algorithm in ("fedbn", "fedrep", "fedper"):
         evaluate_fn = None
     else:
         evaluate_fn = global_evaluate
@@ -103,7 +107,12 @@ def main(grid: Grid, context: Context) -> None:
         # Save final model to disk
         print("\nSaving final model to disk...")
         state_dict = result.arrays.to_torch_state_dict()
-        torch.save(state_dict, "final_model.pt")
+
+        if algorithm in ("fedper", "fedrep"):
+            torch.save(state_dict, f"{algorithm}_shared_state.pt")
+            print(f"Saved {algorithm} shared parameters only. Client-specific heads are not included.")
+        else:
+            torch.save(state_dict, "final_model.pt")
 
 
 def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
