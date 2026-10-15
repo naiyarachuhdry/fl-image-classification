@@ -62,6 +62,16 @@ moon-temperature = 0.5
 moon-projection-dim = 256   
 model_name = "cnn"
 
+
+fedpft-backbone = "resnet18"
+fedpft-image-size = 64
+fedpft-n-mixtures = 1
+fedpft-cov-type = "spherical"
+fedpft-gmm-seed = 0
+fedpft-head-epochs = 50
+fedpft-head-lr = 0.001
+fedpft-head-batch-size = 256
+
 [partition]
 type = "dirichlet"   # options: iid, dirichlet, shard
 alpha = 0.5          # used only for dirichlet

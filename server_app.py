@@ -2,13 +2,14 @@ import torch
 from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord
 from flwr.serverapp import Grid, ServerApp
 
-from task import load_centralized_dataset
+from task import load_centralized_dataset, load_centralized_dataset_fedpft
 from utils.metrics import evaluate_model
 
 from algorithms.server_strategies import get_strategy
 
 from models import create_model
 
+from models.fedpft_model import FedPFTNet
 from utils.fedbn_helper import get_fedbn_state_dict
 from utils.fedpara_helper import convert_to_fedpara
 from utils.fedrep_helper import get_fedrep_shared_state_dict
@@ -19,11 +20,12 @@ app = ServerApp()
 model_name = None
 algorithm = None
 moon_projection_dim = None
+fedpft_cfg = {}
 @app.main()
 
 def main(grid: Grid, context: Context) -> None:
     """Main entry point for the ServerApp."""
-    global model_name, algorithm, moon_projection_dim
+    global model_name, algorithm, moon_projection_dim, fedpft_cfg
     algorithm = context.run_config["algorithm"]
     moon_projection_dim = context.run_config.get("moon-projection-dim", 84)
 
@@ -36,7 +38,15 @@ def main(grid: Grid, context: Context) -> None:
     model_name = context.run_config["model_name"]
 
     # Load global model
-    global_model = create_model(model_name)
+    if algorithm == "fedpft":
+        fedpft_cfg = {
+            "backbone": context.run_config["fedpft-backbone"],
+            "image_size": context.run_config["fedpft-image-size"],
+            "num_classes": context.run_config.get("num-classes", 10),
+        }
+        global_model = FedPFTNet(fedpft_cfg["backbone"], fedpft_cfg["num_classes"])
+    else:
+        global_model = create_model(model_name)
 
     if algorithm == "fedpara":
         convert_to_fedpara(global_model) 
@@ -49,6 +59,9 @@ def main(grid: Grid, context: Context) -> None:
 
     elif algorithm == "fedrep":
         arrays = ArrayRecord(get_fedrep_shared_state_dict(global_model))
+
+    elif algorithm == "fedpft":
+        arrays = ArrayRecord(global_model.head.state_dict())    
         
     else:
         arrays = ArrayRecord(global_model.state_dict())
@@ -82,6 +95,15 @@ def main(grid: Grid, context: Context) -> None:
     elif algorithm == "fednova":
             strategy_kwargs["server_learning_rate"] = context.run_config.get("server-learning-rate")
             strategy_kwargs["server_momentum"] = context.run_config.get("server-momentum")
+
+    elif algorithm == "fedpft":
+        strategy_kwargs["feature_dim"] = global_model.extractor.hidden_dimension
+        strategy_kwargs["num_classes"] = fedpft_cfg["num_classes"]
+        strategy_kwargs["cov_type"] = context.run_config["fedpft-cov-type"]
+        strategy_kwargs["seed"] = context.run_config["fedpft-gmm-seed"]
+        strategy_kwargs["head_epochs"] = context.run_config["fedpft-head-epochs"]
+        strategy_kwargs["head_lr"] = context.run_config["fedpft-head-lr"]
+        strategy_kwargs["head_batch_size"] = context.run_config["fedpft-head-batch-size"]
     
     strategy = get_strategy(algorithm, **strategy_kwargs)
 
@@ -108,6 +130,15 @@ def main(grid: Grid, context: Context) -> None:
 
 def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
     """Evaluate model on central data."""
+
+    if algorithm == "fedpft":
+        model = FedPFTNet(fedpft_cfg["backbone"], fedpft_cfg["num_classes"])
+        model.load_head(arrays.to_torch_state_dict())
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        model.to(device)
+        test_dataloader = load_centralized_dataset_fedpft(fedpft_cfg["image_size"])
+        test_loss, test_acc = evaluate_model(model, test_dataloader, device)
+        return MetricRecord({"accuracy": test_acc, "loss": test_loss})
 
     # Load the model and initialize it with the received weights
    

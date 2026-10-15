@@ -4,12 +4,14 @@ import torch
 from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
 
-from task import load_data
+from task import load_data, load_data_fedpft
 from utils.metrics import evaluate_model
 
 from algorithms import get_trainer
 
 from models import create_model
+
+from models.fedpft_model import FedPFTNet, build_feature_extractor
 
 from utils.fedbn_helper import get_fedbn_state_dict, get_bn_state_dict, load_bn_state_dict
 from utils.fedpara_helper import convert_to_fedpara
@@ -19,9 +21,58 @@ from utils.moon_helper import prepare_moon_model
 # Flower ClientApp
 app = ClientApp()
 
+def fedpft_train(msg, context):
+    """FedPFT client: extract features once, fit GMMs, send them."""
+    cfg = context.run_config
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    extractor = build_feature_extractor(cfg["fedpft-backbone"])
+    trainloader, _ = load_data_fedpft(
+        context.node_config["partition-id"],
+        context.node_config["num-partitions"],
+        cfg["batch-size"],
+        cfg["fedpft-image-size"],
+    )
+    trainer = get_trainer(
+        "fedpft",
+        n_mixtures=cfg["fedpft-n-mixtures"],
+        cov_type=cfg["fedpft-cov-type"],
+        seed=cfg["fedpft-gmm-seed"],
+    )
+    arrays, num_examples = trainer.extract_and_fit(extractor, trainloader, device)
+    content = RecordDict({
+        "arrays": ArrayRecord(arrays),
+        "metrics": MetricRecord({"num-examples": num_examples}),
+    })
+    return Message(content=content, reply_to=msg)
+
+
+def fedpft_evaluate(msg, context):
+    """FedPFT client: evaluate the server's head on local test data."""
+    cfg = context.run_config
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model = FedPFTNet(cfg["fedpft-backbone"], cfg.get("num-classes", 10))
+    model.load_head(msg.content["arrays"].to_torch_state_dict())
+    model.to(device)
+    _, valloader = load_data_fedpft(
+        context.node_config["partition-id"],
+        context.node_config["num-partitions"],
+        cfg["batch-size"],
+        cfg["fedpft-image-size"],
+    )
+    eval_loss, eval_acc = evaluate_model(model, valloader, device)
+    metrics = {
+        "eval_loss": eval_loss,
+        "eval_acc": eval_acc,
+        "num-examples": len(valloader.dataset),
+    }
+    content = RecordDict({"metrics": MetricRecord(metrics)})
+    return Message(content=content, reply_to=msg)
+
 @app.train()
 def train(msg: Message, context: Context):
     """Train the model on local data."""
+    if context.run_config["algorithm"] == "fedpft":
+        return fedpft_train(msg, context)
 
     algorithm = context.run_config["algorithm"]
     model_name = context.run_config["model_name"]
@@ -149,6 +200,9 @@ def train(msg: Message, context: Context):
 @app.evaluate()
 def evaluate(msg: Message, context: Context):
     """Evaluate the model on local data."""
+
+    if context.run_config["algorithm"] == "fedpft":
+        return fedpft_evaluate(msg, context)
     
     algorithm = context.run_config["algorithm"]
     model_name = context.run_config["model_name"]
