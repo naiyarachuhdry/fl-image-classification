@@ -25,6 +25,8 @@ def train(msg: Message, context: Context):
 
     algorithm = context.run_config["algorithm"]
     model_name = context.run_config["model_name"]
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
     # Create model
     model = create_model(model_name) 
     
@@ -39,6 +41,16 @@ def train(msg: Message, context: Context):
 
     # Load received parameters
     received_state= msg.content["arrays"].to_torch_state_dict()
+
+    # FedMLB: create a teacher from the received global parameters.
+    global_model = None
+    if algorithm == "fedmlb":
+        global_model = create_model(model_name)
+        global_model.load_state_dict(received_state)
+        global_model.to(device)
+        global_model.eval()
+        for parameter in global_model.parameters():
+            parameter.requires_grad_(False)
 
     if algorithm == "fedbn":
         # Load shared/global parameters
@@ -66,7 +78,6 @@ def train(msg: Message, context: Context):
     else:
         model.load_state_dict(received_state)
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
     # Load the data
@@ -84,6 +95,9 @@ def train(msg: Message, context: Context):
         head_epochs=msg.content["config"].get("fedrep-head-epochs", 1),
         mu=context.run_config.get("moon-mu", 1.0),
         temperature=context.run_config.get("moon-temperature", 0.5),
+        global_model=global_model,
+        lambda_1=context.run_config.get("fedmlb-lambda-1", 1.0),
+        lambda_2=context.run_config.get("fedmlb-lambda-2", 1.0),
     )
 
     # Call the training function
@@ -112,7 +126,13 @@ def train(msg: Message, context: Context):
             msg.content["config"]["lr"],
             device,
         )
-    
+        
+    # Clean up teacher model to conserve VRAM on laptop GPUs
+    if algorithm == "fedmlb":
+        del global_model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
     if algorithm == "fedbn":
         bn_state = get_bn_state_dict(model)
         context.state["fedbn_bn_state"] = ArrayRecord(bn_state)
@@ -152,6 +172,7 @@ def evaluate(msg: Message, context: Context):
     
     algorithm = context.run_config["algorithm"]
     model_name = context.run_config["model_name"]
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     model = create_model(model_name)
     if algorithm == "fedpara":
@@ -180,7 +201,6 @@ def evaluate(msg: Message, context: Context):
     else:
         model.load_state_dict(received_state,)
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
     # Load the data
