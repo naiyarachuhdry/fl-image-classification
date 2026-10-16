@@ -84,9 +84,15 @@ def main(grid: Grid, context: Context) -> None:
         strategy_kwargs["tau"] = context.run_config["tau"]
 
     elif algorithm == "fednova":
-            strategy_kwargs["server_learning_rate"] = context.run_config.get("server-learning-rate")
-            strategy_kwargs["server_momentum"] = context.run_config.get("server-momentum")
-    
+        strategy_kwargs["server_learning_rate"] = context.run_config.get("server-learning-rate")
+        strategy_kwargs["server_momentum"] = context.run_config.get("server-momentum")
+        
+    elif algorithm in ("fedmeta_maml", "fedmeta_meta_sgd"):
+        strategy_kwargs["algo"] = algorithm
+        strategy_kwargs["model_name"] = model_name
+        strategy_kwargs["beta"] = context.run_config.get("fedmeta-beta")
+        strategy_kwargs["alpha_init"] = context.run_config.get("fedmeta-alpha")
+
     strategy = get_strategy(algorithm, **strategy_kwargs)
 
     if algorithm in ("fedbn", "fedrep", "fedper"):

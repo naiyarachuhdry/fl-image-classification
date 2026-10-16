@@ -53,7 +53,13 @@ def train(msg: Message, context: Context):
         for parameter in global_model.parameters():
             parameter.requires_grad_(False)
 
-    if algorithm == "fedbn":
+    alpha_state = None
+    if algorithm == "fedmeta_meta_sgd":
+        alpha_state = {k[6:]: v for k, v in received_state.items() if k.startswith("alpha.")}
+        model_state = {k: v for k, v in received_state.items() if not k.startswith("alpha.")}
+        model.load_state_dict(model_state)
+
+    elif algorithm == "fedbn":
         # Load shared/global parameters
         model.load_state_dict(received_state, strict=False,)
 
@@ -110,6 +116,10 @@ def train(msg: Message, context: Context):
         global_model=global_model,
         lambda_1=context.run_config.get("fedmlb-lambda-1", 1.0),
         lambda_2=context.run_config.get("fedmlb-lambda-2", 1.0),
+        alpha_state=alpha_state,
+        alpha=context.run_config.get("fedmeta-alpha", 0.01),
+        gradient_step=context.run_config.get("fedmeta-gradient-step", 5),
+        support_ratio=context.run_config.get("fedmeta-support-ratio", 0.2),
     )
 
     # Call the training function
@@ -169,6 +179,8 @@ def train(msg: Message, context: Context):
         model_record = ArrayRecord(get_fedrep_shared_state_dict(model))
     elif algorithm == "fedper":
         model_record = ArrayRecord(get_fedper_shared_state_dict(model))
+    elif algorithm in ("fedmeta_maml", "fedmeta_meta_sgd"):
+        model_record = ArrayRecord(trainer.get_gradients())    
     else:
         model_record = ArrayRecord(model.state_dict())
 
@@ -206,7 +218,11 @@ def evaluate(msg: Message, context: Context):
    
     received_state = msg.content["arrays"].to_torch_state_dict()
 
-    if algorithm == "fedbn":
+    if algorithm == "fedmeta_meta_sgd":
+        model_state = {k: v for k, v in received_state.items() if not k.startswith("alpha.")}
+        model.load_state_dict(model_state)
+
+    elif algorithm == "fedbn":
         model.load_state_dict(received_state, strict=False,)
         if "fedbn_bn_state" in context.state:
             bn_state = context.state["fedbn_bn_state"].to_torch_state_dict()
@@ -235,12 +251,22 @@ def evaluate(msg: Message, context: Context):
     batch_size = context.run_config["batch-size"]
     _, valloader = load_data(partition_id, num_partitions, batch_size)
 
-    # Call the evaluation function
-    eval_loss, eval_acc = evaluate_model(
-        model,
-        valloader,
-        device,
-    )
+    if algorithm in ("fedavg_meta", "fedmeta_maml", "fedmeta_meta_sgd"):
+        trainer = get_trainer(
+            algorithm,
+            alpha=context.run_config.get("fedmeta-alpha"),
+            gradient_step=context.run_config.get("fedmeta-gradient-step"),
+            support_ratio=context.run_config.get("fedmeta-support-ratio"),
+        )
+        eval_loss, eval_acc = trainer.evaluate(model, valloader, device)
+    
+    else:
+        # Call the evaluation function
+        eval_loss, eval_acc = evaluate_model(
+            model,
+            valloader,
+            device,
+        )
 
     # Construct and return reply Message
     metrics = {

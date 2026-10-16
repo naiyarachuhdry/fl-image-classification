@@ -41,15 +41,15 @@ serverapp = "server_app:app"
 clientapp = "client_app:app"
 
 [tool.flwr.app.config]
-num-server-rounds = 2
+num-server-rounds = 10
 fraction-evaluate = 1.0
 local-epochs = 1
-learning-rate = 0.1
-batch-size = 128                   #32
+learning-rate = 0.01
+batch-size = 32
 save-model = false
 fraction-fit = 1.0
 min-available-clients = 5  
-algorithm = "fedmlb"
+algorithm = "fedmeta_maml"
 proximal-mu = 0.01
 server-learning-rate = 1.0
 server-momentum = 0.9
@@ -61,8 +61,12 @@ moon-mu = 1.0
 moon-temperature = 0.5         
 moon-projection-dim = 256  
 fedmlb-lambda-1 = 1.0        
-fedmlb-lambda-2 = 1.0       
-model_name = "resnet18_mlb"
+fedmlb-lambda-2 = 1.0
+fedmeta-alpha = 0.01             
+fedmeta-beta = 0.001            
+fedmeta-gradient-step = 5      
+fedmeta-support-ratio = 0.2             
+model_name = "cnn"
 
 [partition]
 type = "dirichlet"   # options: iid, dirichlet, shard
