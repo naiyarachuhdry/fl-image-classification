@@ -132,18 +132,36 @@ def convert_to_floco(model: nn.Module, endpoints: int = 3, seed: int = 0) -> Sim
 # ============================================================================
 
 def project_clients(client_gradients: Dict[int, np.ndarray], endpoints: int) -> np.ndarray:
-    """Optimize client projection onto a simplex of dimension (endpoints - 1)."""
+    """Optimize client projection onto a simplex of dimension (endpoints - 1).
+    
+    Robust to any number of clients (from 1 to 100+), handling cases where
+    number of clients is less than endpoints without crashing PCA.
+    """
     sorted_keys = sorted(client_gradients.keys())
+    if not sorted_keys:
+        return np.zeros((0, endpoints), dtype=np.float32)
+
     client_stats = np.array([client_gradients[k] for k in sorted_keys])
+    n_samples, n_features = client_stats.shape
+
+    # For 1 client: place at the uniform barycenter of the simplex
+    if n_samples == 1:
+        return np.ones((1, endpoints), dtype=np.float32) / float(endpoints)
+
+    # PCA requires n_components <= min(n_samples, n_features)
+    n_comp = min(endpoints, n_samples, n_features)
+    kappas = np.zeros((n_samples, endpoints), dtype=np.float32)
 
     if HAS_SKLEARN:
-        kappas = decomposition.PCA(n_components=endpoints).fit_transform(client_stats)
+        pca_result = decomposition.PCA(n_components=n_comp).fit_transform(client_stats)
+        kappas[:, :n_comp] = pca_result
     else:
         # Exact mathematical SVD fallback if scikit-learn is not installed
         mean = np.mean(client_stats, axis=0)
         centered = client_stats - mean
         _, _, vt = np.linalg.svd(centered, full_matrices=False)
-        kappas = np.dot(centered, vt[:endpoints].T)
+        svd_result = np.dot(centered, vt[:n_comp].T)
+        kappas[:, :n_comp] = svd_result
 
     lowest_log_energy = np.inf
     best_beta = None
@@ -159,7 +177,7 @@ def project_clients(client_gradients: Dict[int, np.ndarray], endpoints: int) -> 
             best_beta = betas
 
     if best_beta is None:
-        best_beta = np.ones((len(client_stats), endpoints)) / endpoints
+        best_beta = np.ones((n_samples, endpoints), dtype=np.float32) / float(endpoints)
 
     return best_beta
 
@@ -179,12 +197,16 @@ def _project_client_onto_simplex(kappas: np.ndarray, z: float) -> np.ndarray:
 
 def _riesz_s_energy(simplex_points: np.ndarray) -> float:
     """Compute Riesz s-energy of client projections."""
+    if len(simplex_points) < 2:
+        return 0.0
     diff = simplex_points[:, None] - simplex_points[None, :]
     distance = np.sqrt((diff**2).sum(axis=2))
     np.fill_diagonal(distance, np.inf)
     epsilon = 1e-4
     distance[distance < epsilon] = epsilon
     mutual_dist = distance[np.triu_indices(len(simplex_points), 1)]
+    if len(mutual_dist) == 0:
+        return 0.0
     mutual_dist[np.argwhere(mutual_dist == 0).flatten()] = epsilon
     energies = 1 / (mutual_dist**2)
     valid_energies = energies[~np.isnan(energies)]
