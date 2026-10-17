@@ -1,6 +1,8 @@
 """pytorchexample: A Flower / PyTorch app."""
 
 import torch
+import json
+import numpy as np
 from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
 
@@ -16,6 +18,7 @@ from utils.fedpara_helper import convert_to_fedpara
 from utils.fedrep_helper import get_fedrep_head_state_dict, get_fedrep_shared_state_dict, load_fedrep_head_state_dict
 from utils.moon_helper import prepare_moon_model
 from utils.fedper_helper import get_fedper_head_state_dict, get_fedper_shared_state_dict, load_fedper_head_state_dict
+from utils.floco_helper import convert_to_floco
 
 # Flower ClientApp
 app = ClientApp()
@@ -39,6 +42,11 @@ def train(msg: Message, context: Context):
             model,
             projection_dim=context.run_config.get("moon-projection-dim", 84),
         )
+
+    elif algorithm == "floco":
+        endpoints = context.run_config.get("endpoints", 3)
+        seed = context.run_config.get("seed", 0)
+        model = convert_to_floco(model, endpoints=endpoints, seed=seed)
 
     # Load received parameters
     received_state= msg.content["arrays"].to_torch_state_dict()
@@ -107,6 +115,7 @@ def train(msg: Message, context: Context):
     # Pull algorithm-specific kwargs (e.g. proximal_mu) straight from config —
     # trainers that don't need them just ignore extras via **kwargs
     algorithm = context.run_config["algorithm"]
+    cfg = msg.content.get("config", {})
     trainer = get_trainer(
         algorithm,
         proximal_mu=msg.content["config"].get("proximal_mu", 0.0),
@@ -120,6 +129,7 @@ def train(msg: Message, context: Context):
         alpha=context.run_config.get("fedmeta-alpha", 0.01),
         gradient_step=context.run_config.get("fedmeta-gradient-step", 5),
         support_ratio=context.run_config.get("fedmeta-support-ratio", 0.2),
+        pers_lamda=context.run_config.get("pers_lamda", 0.0),
     )
 
     # Call the training function
@@ -138,8 +148,25 @@ def train(msg: Message, context: Context):
         )
         # Save trained local state for next round's contrastive loss
         context.state["moon_previous_state"] = ArrayRecord(
-                {k: v.detach().cpu() for k, v in model.state_dict().items()}
-            )
+                {k: v.detach().cpu() for k, v in model.state_dict().items()})
+
+    elif algorithm == "floco":
+        # Extract subregion parameters if provided by server (from round tau onwards)
+        subregion_params = None
+        if "center" in cfg and "radius" in cfg:
+            center_val = np.array(json.loads(cfg["center"]))
+            radius_val = float(cfg["radius"])
+            subregion_params = (center_val, radius_val)
+        
+        train_loss = trainer.train(
+            model,
+            trainloader,
+            context.run_config["local-epochs"],
+            cfg.get("lr", 0.01),
+            device,
+            subregion_parameters=subregion_params,
+        )
+
     else:
         train_loss = trainer.train(
             model,
@@ -188,6 +215,7 @@ def train(msg: Message, context: Context):
     metrics = {
         "train_loss": train_loss,
         "num-examples": len(trainloader.dataset),
+        "partition-id": partition_id,
     }
     
     if hasattr(trainer, "get_metrics"):
@@ -215,6 +243,11 @@ def evaluate(msg: Message, context: Context):
             model,
             projection_dim=context.run_config.get("moon-projection-dim", 84),
         )
+    
+    elif algorithm == "floco":
+        endpoints = context.run_config.get("endpoints", 3)
+        seed = context.run_config.get("seed", 0)
+        model = convert_to_floco(model, endpoints=endpoints, seed=seed)
    
     received_state = msg.content["arrays"].to_torch_state_dict()
 
@@ -251,6 +284,8 @@ def evaluate(msg: Message, context: Context):
     batch_size = context.run_config["batch-size"]
     _, valloader = load_data(partition_id, num_partitions, batch_size)
 
+    cfg = msg.content.get("config", {})
+
     if algorithm in ("fedavg_meta", "fedmeta_maml", "fedmeta_meta_sgd"):
         trainer = get_trainer(
             algorithm,
@@ -259,7 +294,17 @@ def evaluate(msg: Message, context: Context):
             support_ratio=context.run_config.get("fedmeta-support-ratio"),
         )
         eval_loss, eval_acc = trainer.evaluate(model, valloader, device)
-    
+
+    elif algorithm == "floco":
+        subregion_params = None
+        cfg = msg.content["config"]
+        if "center" in cfg and "radius" in cfg:
+            center_val = np.array(json.loads(cfg["center"]))
+            radius_val = float(cfg["radius"])
+            subregion_params = (center_val, radius_val)
+        trainer = get_trainer("floco")
+        eval_loss, eval_acc = trainer.evaluate(model, valloader, device, subregion_parameters=subregion_params)
+
     else:
         # Call the evaluation function
         eval_loss, eval_acc = evaluate_model(
@@ -273,6 +318,7 @@ def evaluate(msg: Message, context: Context):
         "eval_loss": eval_loss,
         "eval_acc": eval_acc,
         "num-examples": len(valloader.dataset),
+        "partition-id": partition_id,
     }
     metric_record = MetricRecord(metrics)
     content = RecordDict({"metrics": metric_record})

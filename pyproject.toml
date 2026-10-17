@@ -12,6 +12,7 @@ dependencies = [
     "flwr-datasets[vision]>=0.6.0",
     "torch==2.10.0",
     "torchvision==0.25.0",
+    "scikit-learn",
     "pytest"
 ]
 
@@ -44,18 +45,18 @@ clientapp = "client_app:app"
 num-server-rounds = 10
 fraction-evaluate = 1.0
 local-epochs = 1
-learning-rate = 0.01
+learning-rate = 0.02
 batch-size = 32
 save-model = false
 fraction-fit = 1.0
 min-available-clients = 5  
-algorithm = "fedmeta_maml"
+algorithm = "floco"
 proximal-mu = 0.01
 server-learning-rate = 1.0
 server-momentum = 0.9
 beta-1 = 0.9
 beta-2 = 0.99
-tau = 0.001
+tau = 2                  # 0.001
 fedrep-head-epochs = 1
 moon-mu = 1.0
 moon-temperature = 0.5         
@@ -65,7 +66,11 @@ fedmlb-lambda-2 = 1.0
 fedmeta-alpha = 0.01             
 fedmeta-beta = 0.001            
 fedmeta-gradient-step = 5      
-fedmeta-support-ratio = 0.2             
+fedmeta-support-ratio = 0.2   
+endpoints = 10
+rho = 0.3
+pers_lamda = 0
+seed = 0     
 model_name = "cnn"
 
 [partition]

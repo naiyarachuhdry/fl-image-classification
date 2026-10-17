@@ -14,19 +14,22 @@ from utils.fedpara_helper import convert_to_fedpara
 from utils.fedrep_helper import get_fedrep_shared_state_dict
 from utils.moon_helper import prepare_moon_model
 from utils.fedper_helper import get_fedper_shared_state_dict
+from utils.floco_helper import convert_to_floco
 
 # Create ServerApp
 app = ServerApp()
 model_name = None
 algorithm = None
 moon_projection_dim = None
+floco_endpoints = None
 @app.main()
 
 def main(grid: Grid, context: Context) -> None:
     """Main entry point for the ServerApp."""
-    global model_name, algorithm, moon_projection_dim
+    global model_name, algorithm, moon_projection_dim, floco_endpoints
     algorithm = context.run_config["algorithm"]
     moon_projection_dim = context.run_config.get("moon-projection-dim", 84)
+    floco_endpoints = context.run_config.get("endpoints", 3)
 
     # Read run config
     fraction_evaluate: float = context.run_config["fraction-evaluate"]
@@ -43,7 +46,11 @@ def main(grid: Grid, context: Context) -> None:
         convert_to_fedpara(global_model) 
 
     elif algorithm == "moon":
-        prepare_moon_model(global_model, projection_dim=moon_projection_dim)   
+        prepare_moon_model(global_model, projection_dim=moon_projection_dim)
+
+    elif algorithm == "floco":
+        seed = context.run_config.get("seed", 0)
+        global_model = convert_to_floco(global_model, endpoints=floco_endpoints, seed=seed)   
 
     if algorithm == "fedbn":
         arrays = ArrayRecord(get_fedbn_state_dict(global_model))
@@ -53,7 +60,7 @@ def main(grid: Grid, context: Context) -> None:
 
     elif algorithm == "fedper":
         arrays = ArrayRecord(get_fedper_shared_state_dict(global_model))
-        
+    
     else:
         arrays = ArrayRecord(global_model.state_dict())
 
@@ -92,6 +99,12 @@ def main(grid: Grid, context: Context) -> None:
         strategy_kwargs["model_name"] = model_name
         strategy_kwargs["beta"] = context.run_config.get("fedmeta-beta")
         strategy_kwargs["alpha_init"] = context.run_config.get("fedmeta-alpha")
+
+    elif algorithm == "floco":
+        strategy_kwargs["endpoints"] = context.run_config.get("endpoints")
+        strategy_kwargs["tau"] = context.run_config.get("tau")
+        strategy_kwargs["rho"] = context.run_config.get("rho")
+        strategy_kwargs["fraction_fit"] = context.run_config.get("fraction-fit")
 
     strategy = get_strategy(algorithm, **strategy_kwargs)
 
@@ -133,6 +146,11 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
 
     elif algorithm == "moon":
         prepare_moon_model(model, projection_dim=moon_projection_dim)
+
+    elif algorithm == "floco":
+        seed = 0
+        endpoints = floco_endpoints or 3
+        model = convert_to_floco(model, endpoints=floco_endpoints, seed=seed)
 
     model.load_state_dict(arrays.to_torch_state_dict())
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
