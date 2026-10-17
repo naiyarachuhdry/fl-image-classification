@@ -41,15 +41,15 @@ serverapp = "server_app:app"
 clientapp = "client_app:app"
 
 [tool.flwr.app.config]
-num-server-rounds = 5
+num-server-rounds = 1
 fraction-evaluate = 1.0
 local-epochs = 2
 learning-rate = 0.01
 batch-size = 64                    #32
 save-model = false
 fraction-fit = 1.0
-min-available-clients = 10
-algorithm = "moon"
+min-available-clients = 2
+algorithm = "fedpft"
 proximal-mu = 0.01
 server-learning-rate = 1.0
 server-momentum = 0.9
@@ -60,11 +60,7 @@ fedrep-head-epochs = 1
 moon-mu = 1.0
 moon-temperature = 0.5         
 moon-projection-dim = 256   
-model_name = "cnn"
-
-
-fedpft-backbone = "resnet18"
-fedpft-image-size = 64
+model_name = "resnet18"
 fedpft-n-mixtures = 1
 fedpft-cov-type = "spherical"
 fedpft-gmm-seed = 0

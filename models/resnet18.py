@@ -4,7 +4,7 @@ from torchvision import models
 from .base import BaseModel
 
 
-class ResNetModel(BaseModel):
+class ResNet18Model(BaseModel):
 
     def build(self) -> nn.Module:
         model = models.resnet18(
@@ -12,16 +12,10 @@ class ResNetModel(BaseModel):
         )
 
         # Freeze backbone
-        for param in model.features.parameters():
+        for param in model.parameters():
             param.requires_grad = False
 
         # Classification head
-        model.classifier = nn.Sequential(
-            nn.Dropout(p=0.4),
-            nn.Linear(1280, 256),
-            nn.ReLU(inplace=True),
-            nn.Dropout(p=0.3),
-            nn.Linear(256, 2),
-        )
+        model.fc = nn.Linear(512, 10)
 
         return model

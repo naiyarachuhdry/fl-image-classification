@@ -3,18 +3,14 @@
 Clients send per-class GMMs once; the server samples synthetic features,
 trains a linear classifier head on them and returns the head's weights.
 """
-from collections import OrderedDict
 from collections.abc import Iterable
 from logging import INFO
-
-import numpy as np
 import torch
 from flwr.app import ArrayRecord, Message, MetricRecord
 from flwr.common.logger import log
 from flwr.serverapp.strategy import FedAvg
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
-
 from utils.fedpft_helper import build_synthetic_dataset, unpack
 
 
@@ -22,7 +18,7 @@ def train_head(features, labels, feature_dim, num_classes, epochs, lr,
                batch_size, device, seed=0):
     """Train a linear head on (synthetic) features.
 
-    Returns (state_dict of the head on CPU, accuracy of the last epoch).
+    Returns (trained head, accuracy of the last epoch).
     """
     torch.manual_seed(seed)
     gen = torch.Generator().manual_seed(seed)
@@ -48,9 +44,7 @@ def train_head(features, labels, feature_dim, num_classes, epochs, lr,
         acc = correct / max(total, 1)
         log(INFO, "FedPFT head: epoch %d/%d, synthetic accuracy %.4f",
             epoch + 1, epochs, acc)
-
-    state = OrderedDict((k, v.detach().cpu()) for k, v in head.state_dict().items())
-    return state, acc
+    return head, acc
 
 
 class FedPFT(FedAvg):
@@ -93,11 +87,12 @@ class FedPFT(FedAvg):
         log(INFO, "FedPFT: %d GMMs -> %d synthetic features of dim %d",
             len(params), features.shape[0], features.shape[1])
 
-        state, acc = train_head(
+        head, acc = train_head(
             features, labels, self.feature_dim, self.num_classes,
             self.head_epochs, self.head_lr, self.head_batch_size,
             self.device, self.seed,
         )
+        state = {f"fc.{k}": v for k, v in head.state_dict().items()}
         metrics = MetricRecord({
             "num-gmms": len(params),
             "synthetic-samples": int(features.shape[0]),
