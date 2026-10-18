@@ -30,7 +30,8 @@ def train(msg: Message, context: Context):
     algorithm = context.run_config["algorithm"]
     model_name = context.run_config["model_name"]
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
+    global_model = None
+    
     # Create model
     model = create_model(model_name) 
     
@@ -51,9 +52,57 @@ def train(msg: Message, context: Context):
     # Load received parameters
     received_state= msg.content["arrays"].to_torch_state_dict()
 
+    scaffold_parameter_names = []
+    scaffold_server_cv = None
+    scaffold_client_cv = None
+
+    if algorithm == "scaffold":
+        server_cv_prefix = "__scaffold_server_cv__"
+
+        scaffold_parameter_names = [
+            name
+            for name, parameter in model.named_parameters()
+            if parameter.requires_grad
+        ]
+
+        # Extract server control variates from the received arrays.
+        scaffold_server_cv = []
+
+        for name in scaffold_parameter_names:
+            cv_key = server_cv_prefix + name
+
+            if cv_key not in received_state:
+                raise ValueError(
+                    f"Missing server control variate: {cv_key}"
+                )
+
+            scaffold_server_cv.append(
+                received_state.pop(cv_key)
+            )
+
+        # Restore this client's control variates from its persistent state.
+        if "scaffold_client_cv" in context.state:
+            saved_cv = (
+                context.state["scaffold_client_cv"]
+                .to_torch_state_dict()
+            )
+
+            scaffold_client_cv = [
+                saved_cv[name]
+                for name in scaffold_parameter_names
+            ]
+
+        else:
+            # First participation: initialize client control variates to zero.
+            named_parameters = dict(model.named_parameters())
+
+            scaffold_client_cv = [
+                torch.zeros_like(named_parameters[name].detach())
+                for name in scaffold_parameter_names
+            ]
+
     # FedMLB: create a teacher from the received global parameters.
-    global_model = None
-    if algorithm == "fedmlb":
+    elif algorithm == "fedmlb":
         global_model = create_model(model_name)
         global_model.load_state_dict(received_state)
         global_model.to(device)
@@ -116,7 +165,15 @@ def train(msg: Message, context: Context):
     # trainers that don't need them just ignore extras via **kwargs
     algorithm = context.run_config["algorithm"]
     cfg = msg.content.get("config", {})
-    trainer = get_trainer(
+
+    if algorithm == "scaffold":
+        trainer = get_trainer(
+            algorithm,
+            server_cv=scaffold_server_cv,
+            client_cv=scaffold_client_cv,
+        )
+    else:    
+        trainer = get_trainer(
         algorithm,
         proximal_mu=msg.content["config"].get("proximal_mu", 0.0),
         head_epochs=msg.content["config"].get("fedrep-head-epochs", 1),
@@ -167,6 +224,34 @@ def train(msg: Message, context: Context):
             subregion_parameters=subregion_params,
         )
 
+    elif algorithm == "scaffold":
+        print(
+        f"[SCAFFOLD DEBUG] algorithm={algorithm}, "
+        f"server_cv_is_none={trainer.server_cv is None}, "
+        f"client_cv_is_none={trainer.client_cv is None}, "
+        f"server_cv_count={len(trainer.server_cv) if trainer.server_cv is not None else 'None'}, "
+        f"client_cv_count={len(trainer.client_cv) if trainer.client_cv is not None else 'None'}"
+    )
+        train_loss = trainer.train(
+            model,
+            trainloader,
+            context.run_config["local-epochs"],
+            msg.content["config"]["lr"],
+            device,
+        )
+
+        # Retrieve model and control-variate changes.
+        model_delta, client_cv_delta = trainer.get_updates()
+        client_cv_new = trainer.get_new_client_cv()
+
+        # Persist updated client control variates between rounds.
+        context.state["scaffold_client_cv"] = ArrayRecord({
+            name: value
+            for name, value in zip(
+                scaffold_parameter_names, client_cv_new
+            )
+        })
+
     else:
         train_loss = trainer.train(
             model,
@@ -208,6 +293,17 @@ def train(msg: Message, context: Context):
         model_record = ArrayRecord(get_fedper_shared_state_dict(model))
     elif algorithm in ("fedmeta_maml", "fedmeta_meta_sgd"):
         model_record = ArrayRecord(trainer.get_gradients())    
+    elif algorithm == "scaffold":
+        updates = {}
+        # Send model parameter changes (y_i - x)
+        for name, value in zip(scaffold_parameter_names, model_delta):
+            updates["__scaffold_model_delta__" + name] = value
+
+        # Send client control-variate changes (c_i_new - c_i)
+        for name, value in zip(scaffold_parameter_names, client_cv_delta):
+            updates["__scaffold_client_cv_delta__" + name] = value
+        model_record = ArrayRecord(updates)
+
     else:
         model_record = ArrayRecord(model.state_dict())
 

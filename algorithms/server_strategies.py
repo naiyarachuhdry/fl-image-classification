@@ -2,6 +2,7 @@ from flwr.serverapp.strategy import FedAvg, FedProx, FedAvgM, FedAdam, FedAdagra
 from .fednova import FedNova
 from .fedmeta import FedMeta
 from .floco import Floco 
+from .scaffold import Scaffold
 
 STRATEGY_REGISTRY = {
     "fedavg": FedAvg,
@@ -18,14 +19,13 @@ STRATEGY_REGISTRY = {
     "moon": FedAvg,
     "fedmlb": FedAvg,
     "fedper": FedAvg,
+    "floco": Floco,
+    "scaffold": Scaffold,
     # --- FedMeta Algorithms ---
     "fedavg_meta": FedAvg,      
     "fedmeta_maml": FedMeta,    
     "fedmeta_meta_sgd": FedMeta,
-    # ---------------------------
-    "floco": Floco,
 }
-
 
 def get_strategy(algorithm: str, **kwargs):
     try:

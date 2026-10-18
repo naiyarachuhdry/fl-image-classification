@@ -12,8 +12,9 @@ from .fedrep_trainer import FedRepTrainer
 from .moon_trainer import MoonTrainer
 from .fedmlb_trainer import FedMlbTrainer
 from .fedper_trainer import FedPerTrainer
-from .fedmeta_trainer import (FedAvgMetaTrainer, FedMetaMamlTrainer, FedMetaMetaSgdTrainer)
+from .fedmeta_trainer import FedAvgMetaTrainer, FedMetaMamlTrainer, FedMetaMetaSgdTrainer
 from .floco_trainer import FlocoTrainer 
+from .scaffold_trainer import ScaffoldTrainer
 
 TRAINER_REGISTRY = {
     "fedavg": FedAvgTrainer,
@@ -34,6 +35,7 @@ TRAINER_REGISTRY = {
     "fedmeta_maml": FedMetaMamlTrainer,
     "fedmeta_meta_sgd": FedMetaMetaSgdTrainer,
     "floco": FlocoTrainer, 
+    "scaffold": ScaffoldTrainer,
 }
 
 

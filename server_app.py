@@ -15,6 +15,7 @@ from utils.fedrep_helper import get_fedrep_shared_state_dict
 from utils.moon_helper import prepare_moon_model
 from utils.fedper_helper import get_fedper_shared_state_dict
 from utils.floco_helper import convert_to_floco
+from utils.scaffold_helper import get_num_supernodes, get_trainable_parameter_names
 
 # Create ServerApp
 app = ServerApp()
@@ -105,6 +106,10 @@ def main(grid: Grid, context: Context) -> None:
         strategy_kwargs["tau"] = context.run_config.get("tau")
         strategy_kwargs["rho"] = context.run_config.get("rho")
         strategy_kwargs["fraction_fit"] = context.run_config.get("fraction-fit")
+
+    elif algorithm == "scaffold":
+        strategy_kwargs["parameter_names"] =  get_trainable_parameter_names(global_model)
+        strategy_kwargs["num_clients"] = get_num_supernodes()
 
     strategy = get_strategy(algorithm, **strategy_kwargs)
 
